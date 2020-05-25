@@ -1,0 +1,3 @@
+# apt protobuf-complier
+cryptography
+requests

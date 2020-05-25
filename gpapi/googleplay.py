@@ -2,6 +2,8 @@
 
 from base64 import b64decode, urlsafe_b64encode
 from datetime import datetime
+import string, re
+from time import sleep
 
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from cryptography.hazmat.backends import default_backend
@@ -411,6 +413,7 @@ class GooglePlayAPI(object):
             response = data.preFetch[0].response
         else:
             response = data
+        print(data)
         resIterator = response.payload.listResponse.doc
         return list(map(utils.parseProtobufObj, resIterator))
 
@@ -426,6 +429,26 @@ class GooglePlayAPI(object):
         data = self.executeRequestApi2(path)
 
         return utils.parseProtobufObj(data.payload.browseResponse)
+
+    def get_token(self, offset):
+        code = "AEIMQUYcgkosw048"
+        code_suffix = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" \
+            + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" \
+            + "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        if offset >= 254:
+            offset += 1
+        i = offset // 16
+        j = offset % 16
+        s = offset // 128
+        if s > 0:
+            i -= 8 * (s - 1)
+            s = s % len(code_suffix)
+        else:
+            code_suffix = "=BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        key = string.ascii_uppercase[i] + code[j]
+        token = "C" + key + requests.utils.quote(code_suffix[s])
+        print('\n', offset, token, '\n')
+        return token
 
     def list(self, cat, ctr=None, nb_results=None, offset=None):
         """List all possible subcategories for a specific category. If
@@ -448,8 +471,11 @@ class GooglePlayAPI(object):
         if nb_results is not None:
             path += "&n={}".format(requests.utils.quote(str(nb_results)))
         if offset is not None:
-            path += "&o={}".format(requests.utils.quote(str(offset)))
+            # path += "&o={}".format(requests.utils.quote(str(offset)))
+            path += "&ctntkn=" + self.get_token(int(offset))
         data = self.executeRequestApi2(path)
+        next = re.search(r"nextPageUrl(.*?)[\r\n]",str(data)).group()[14:-2]
+        print(next.split("=")[-1])
         clusters = []
         docs = []
         if ctr is None:
@@ -465,6 +491,94 @@ class GooglePlayAPI(object):
                     for a in c.child: # app
                         apps.append(utils.parseProtobufObj(a))
             return apps
+
+    def list_iter(self, cat, ctr, nb_results=100, iter=0):
+        """List all possible subcategories for a specific category. If
+        also a subcategory is provided, list apps from this category.
+
+        Args:
+            cat (str): category id
+            ctr (str): subcategory id
+            nb_results (int): if a subcategory is specified, limit number
+                of results to this number
+            offset (int): if a subcategory is specified, start counting from this
+                result
+        Returns:
+            A list of categories. If subcategory is specified, a list of apps in this
+            category.
+        """
+        path = LIST_URL + "?c=3&cat={}".format(requests.utils.quote(cat))
+        if ctr is not None:
+            path += "&ctr={}".format(requests.utils.quote(ctr))
+        if nb_results is not None:
+            path += "&n={}".format(requests.utils.quote(str(nb_results)))
+        path += "&ctntkn=CAA%3D" 
+        #path += "&ctntkn=COVQ"
+        data = self.executeRequestApi2(path)
+        #print(data)
+
+        apps = []
+        for d in data.payload.listResponse.doc: # categories
+            for c in d.child: # sub-category
+                for a in c.child: # app
+                    yield utils.parseProtobufObj(a)
+                    # apps.append(utils.parseProtobufObj(a))
+        
+        while True:
+            sleep(0.5)
+            next = re.search(r"nextPageUrl(.*?)[\r\n]",str(data)).group()[14:-2]
+            print(next.split("=")[-1])
+            if 1==1 or (i > 0 and i % 5 == 3):
+                new = next.split('&')[:-2]+[next.split('&')[-1]]
+                next = '&'.join(new)
+                # print("new ", next)
+            data = self.executeRequestApi2(FDFE+next)
+            #print(data)
+            for d in data.payload.listResponse.doc: # categories
+                for c in d.child: # sub-category
+                    for a in c.child: # app
+                        yield utils.parseProtobufObj(a)
+                        # apps.append(utils.parseProtobufObj(a))
+        # return apps
+
+
+    def list_all(self, cat, ctr, nb_results=100, iter=0):
+        """List all possible subcategories for a specific category. If
+        also a subcategory is provided, list apps from this category.
+
+        Args:
+            cat (str): category id
+            ctr (str): subcategory id
+            nb_results (int): if a subcategory is specified, limit number
+                of results to this number
+            offset (int): if a subcategory is specified, start counting from this
+                result
+        Returns:
+            A list of categories. If subcategory is specified, a list of apps in this
+            category.
+        """
+        path = LIST_URL + "?c=3&cat={}".format(requests.utils.quote(cat))
+        if ctr is not None:
+            path += "&ctr={}".format(requests.utils.quote(ctr))
+        if nb_results is not None:
+            path += "&n={}".format(requests.utils.quote(str(nb_results)))
+        path += "&ctntkn=" 
+
+        for i in range(500, 10000):
+            token = self.get_token(i)
+            # print(token)
+            next = path+token
+            print(next)
+            sleep(0.5)
+            data = self.executeRequestApi2(next)
+            #print(data)
+            for d in data.payload.listResponse.doc: # categories
+                for c in d.child: # sub-category
+                    for a in c.child: # app
+                        yield utils.parseProtobufObj(a)
+                        # apps.append(utils.parseProtobufObj(a))
+        # return apps
+
 
     def reviews(self, packageName, filterByDevice=False, sort=2,
                 nb_results=None, offset=None):
