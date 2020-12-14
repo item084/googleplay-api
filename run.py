@@ -1,6 +1,6 @@
 from gpapi.googleplay import GooglePlayAPI, RequestError
 from time import sleep
-import json, re, os, pymongo
+import json, re, os, pymongo, threading
 
 mail = "item084.dev@gmail.com"
 passwd = "devdevdev@GG"
@@ -152,8 +152,106 @@ def fetch(cat, catlist):
             pass
         #col.insert_many(d)
 
+def verify(off):
+    """Convert and write to MongoDB."""
+    _, client = conn()
+
+    db = client.MobiPurpose
+    dbm = client.MergedResults
+    merge = dbm.Merge
+    
+    #verify = dbm.Verify
+    #verify.create_index([('ID', pymongo.ASCENDING)], unique=True)
+
+    error = dbm.Error
+    error.create_index([('ID', pymongo.ASCENDING)], unique=True)
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0',
+    }
+    proxies = {
+    'http': 'socks5h://127.0.0.1:9050',
+    'https': 'socks5h://127.0.0.1:9050'
+    }
+    
+    outfile = "/home/kelyao/gplayscrapy/merge.txt"
+    with open(outfile, "r") as output:
+        for i, doc in enumerate(output):
+            if i < off or i > off + 6000:
+                continue
+            doc = doc.rstrip('\n')
+            try:
+                res = api.details(doc)
+                print(res['docid'])
+            except RequestError as e:
+                print(e, i, doc)
+                continue
+            except KeyboardInterrupt:
+                exit()
+            try:
+                verify.insert_one({'ID': doc})
+            except KeyboardInterrupt:
+                exit()
+            except:
+                pass
+
+
+def error(off):
+    """Convert and write to MongoDB."""
+    _, client = conn()
+
+    db = client.MobiPurpose
+    dbm = client.MergedResults
+    # merge = dbm.Merge
+    
+    #verify = dbm.Verify
+    #verify.create_index([('ID', pymongo.ASCENDING)], unique=True)
+
+    error = dbm.Error
+    error.create_index([('ID', pymongo.ASCENDING)], unique=True)
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0',
+    }
+    proxies = {
+    'http': 'socks5h://127.0.0.1:9050',
+    'https': 'socks5h://127.0.0.1:9050'
+    }
+    
+    outfile = "/home/kelyao/gplayscrapy/merge.txt"
+    with open(outfile, "r") as output:
+        for i, doc in enumerate(output):
+            if i < off or i > off + 6000:
+                continue
+            doc = doc.rstrip('\n')
+            while True:
+                try:
+                    res = api.details(doc)
+                    print(res['docid'])
+                except KeyboardInterrupt:
+                    exit()
+                except RequestError as e:
+                    print(e, i, doc)
+                    try:
+                        error.insert_one({"ID": doc})
+                    except pymongo.errors.DuplicateKeyError:
+                        pass
+                except Exception as e:
+                    print(e, doc)
+                    continue
+                break
+
 
 if __name__ == "__main__":
+    error(0)
+
+    exit()
+
+    for i in range(150):
+        offset = i * 5000
+        threading.Thread(target=error, args=(offset,)).start()
+
+    exit()
 
     d = {}
     with open('categories.json', 'r') as f:
